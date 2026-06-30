@@ -47,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---- Configuration ----
     // 사용자님의 실제 서버 API 주소 또는 Firebase Database URL을 여기에 하드코딩하세요.
     // 예: "https://my-custom-server.com/api" 또는 "https://my-firebase-project.firebaseio.com/"
-    const MY_SERVER_URL = "https://your-server-endpoint.com/"; 
+    const MY_SERVER_URL = "https://lean-mass-up-tracker-default-rtdb.firebaseio.com/"; 
 
     // ---- State ----
     let apiKey = localStorage.getItem('gemini_api_key') || '';
