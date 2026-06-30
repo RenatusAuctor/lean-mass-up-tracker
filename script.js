@@ -11,7 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const settingsModal = document.getElementById('settings-modal');
     const closeModal = document.getElementById('close-modal');
     const apiKeyInput = document.getElementById('api-key-input');
-    const dbUrlInput = document.getElementById('db-url-input');
     const saveKeyBtn = document.getElementById('save-key-btn');
 
     // Dashboard values
@@ -45,13 +44,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const globalFeedList = document.getElementById('global-feed-list');
     const langToggleBtn = document.getElementById('lang-toggle-btn');
 
+    // ---- Configuration ----
+    // 사용자님의 실제 서버 API 주소 또는 Firebase Database URL을 여기에 하드코딩하세요.
+    // 예: "https://my-custom-server.com/api" 또는 "https://my-firebase-project.firebaseio.com/"
+    const MY_SERVER_URL = "https://your-server-endpoint.com/"; 
+
     // ---- State ----
     let apiKey = localStorage.getItem('gemini_api_key') || '';
-    let dbUrl = localStorage.getItem('firebase_db_url') || '';
     
-    // Auto format dbUrl
-    if(dbUrl && !dbUrl.endsWith('/')) dbUrl += '/';
-
     let state = JSON.parse(localStorage.getItem('macro_state')) || {
         hasTarget: false,
         weight: 0,
@@ -64,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---- Initialization ----
     if (apiKey) apiKeyInput.value = apiKey;
-    if (dbUrl) dbUrlInput.value = localStorage.getItem('firebase_db_url');
 
     applyTranslations();
 
@@ -76,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderMealHistory();
     }
     
-    if (dbUrl) fetchGlobalFeed();
+    fetchGlobalFeed();
 
     // ---- Language Toggle ----
     langToggleBtn.onclick = () => {
@@ -103,14 +102,8 @@ document.addEventListener('DOMContentLoaded', () => {
     closeModal.onclick = () => settingsModal.classList.add('hidden');
     saveKeyBtn.onclick = () => {
         apiKey = apiKeyInput.value.trim();
-        dbUrl = dbUrlInput.value.trim();
-        if(dbUrl && !dbUrl.endsWith('/')) dbUrl += '/';
-        
         localStorage.setItem('gemini_api_key', apiKey);
-        localStorage.setItem('firebase_db_url', dbUrlInput.value.trim());
-        
         settingsModal.classList.add('hidden');
-        if(dbUrl) fetchGlobalFeed();
     };
 
     // ---- Base Calculations ----
@@ -211,10 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
             updateDashboardUI();
             renderMealHistory();
             
-            // Push to global feed if DB exists
-            if (dbUrl) {
-                publishToGlobalFeed(result.name, result.calories);
-            }
+            // Push to global feed (Central Server)
+            publishToGlobalFeed(result.name, result.calories);
             
             // Clear inputs
             mealText.value = '';
@@ -362,9 +353,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // ---- Global Feed (Firebase REST) ----
+    // ---- Central Server (Global Feed) ----
     async function publishToGlobalFeed(mealName, cals) {
-        if(!dbUrl) return;
+        if(!MY_SERVER_URL || MY_SERVER_URL.includes('your-server-endpoint')) return;
         const msg = currentLang === 'ko' ? '누군가 방금 식단을 추가했습니다!' : '誰かが食事を追加しました！';
         const data = {
             message: msg,
@@ -373,7 +364,9 @@ document.addEventListener('DOMContentLoaded', () => {
             timestamp: Date.now()
         };
         try {
-            await fetch(`${dbUrl}feed.json`, {
+            // Firebase Realtime DB URL example: https://my-db.firebaseio.com/feed.json
+            const endpoint = MY_SERVER_URL.endsWith('.json') ? MY_SERVER_URL : `${MY_SERVER_URL}feed.json`;
+            await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
@@ -383,10 +376,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function fetchGlobalFeed() {
-        if(!dbUrl) return;
+        if(!MY_SERVER_URL || MY_SERVER_URL.includes('your-server-endpoint')) return;
         try {
             // Get last 5 entries
-            const response = await fetch(`${dbUrl}feed.json?orderBy="$key"&limitToLast=5`);
+            const endpoint = MY_SERVER_URL.endsWith('.json') ? MY_SERVER_URL : `${MY_SERVER_URL}feed.json`;
+            const response = await fetch(`${endpoint}?orderBy="$key"&limitToLast=5`);
             if(!response.ok) return;
             const data = await response.json();
             
