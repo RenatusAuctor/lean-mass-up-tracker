@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const settingsModal = document.getElementById('settings-modal');
     const closeModal = document.getElementById('close-modal');
     const apiKeyInput = document.getElementById('api-key-input');
+    const dbUrlInput = document.getElementById('db-url-input');
     const saveKeyBtn = document.getElementById('save-key-btn');
 
     // Dashboard values
@@ -39,9 +40,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const spinner = analyzeBtn.querySelector('.spinner');
     const aiErrorMsg = document.getElementById('ai-error-msg');
     const mealList = document.getElementById('meal-list');
+    
+    // Global Feed
+    const globalFeedList = document.getElementById('global-feed-list');
+    const langToggleBtn = document.getElementById('lang-toggle-btn');
 
     // ---- State ----
     let apiKey = localStorage.getItem('gemini_api_key') || '';
+    let dbUrl = localStorage.getItem('firebase_db_url') || '';
+    
+    // Auto format dbUrl
+    if(dbUrl && !dbUrl.endsWith('/')) dbUrl += '/';
+
     let state = JSON.parse(localStorage.getItem('macro_state')) || {
         hasTarget: false,
         weight: 0,
@@ -50,9 +60,13 @@ document.addEventListener('DOMContentLoaded', () => {
         meals: []
     };
     let currentImageBase64 = null;
+    let currentLang = localStorage.getItem('lang') || 'ko';
 
     // ---- Initialization ----
     if (apiKey) apiKeyInput.value = apiKey;
+    if (dbUrl) dbUrlInput.value = localStorage.getItem('firebase_db_url');
+
+    applyTranslations();
 
     if (state.hasTarget) {
         setupSection.classList.add('hidden');
@@ -61,27 +75,49 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDashboardUI();
         renderMealHistory();
     }
+    
+    if (dbUrl) fetchGlobalFeed();
+
+    // ---- Language Toggle ----
+    langToggleBtn.onclick = () => {
+        currentLang = currentLang === 'ko' ? 'ja' : 'ko';
+        localStorage.setItem('lang', currentLang);
+        applyTranslations();
+        renderMealHistory();
+    };
+
+    function applyTranslations() {
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            el.innerHTML = window.t(key);
+        });
+        document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+            const key = el.getAttribute('data-i18n-ph');
+            el.setAttribute('placeholder', window.t(key));
+        });
+        langToggleBtn.textContent = currentLang === 'ko' ? '🌐 JA' : '🌐 KO';
+    }
 
     // ---- Settings Modal ----
     settingsBtn.onclick = () => settingsModal.classList.remove('hidden');
     closeModal.onclick = () => settingsModal.classList.add('hidden');
     saveKeyBtn.onclick = () => {
-        const val = apiKeyInput.value.trim();
-        if (val) {
-            apiKey = val;
-            localStorage.setItem('gemini_api_key', apiKey);
-            settingsModal.classList.add('hidden');
-            alert('API 키가 저장되었습니다.');
-        } else {
-            alert('API 키를 입력해주세요.');
-        }
+        apiKey = apiKeyInput.value.trim();
+        dbUrl = dbUrlInput.value.trim();
+        if(dbUrl && !dbUrl.endsWith('/')) dbUrl += '/';
+        
+        localStorage.setItem('gemini_api_key', apiKey);
+        localStorage.setItem('firebase_db_url', dbUrlInput.value.trim());
+        
+        settingsModal.classList.add('hidden');
+        if(dbUrl) fetchGlobalFeed();
     };
 
     // ---- Base Calculations ----
     calcBtn.onclick = () => {
         const weight = parseFloat(weightInput.value);
         if (isNaN(weight) || weight <= 0) {
-            alert("올바른 체중을 입력해주세요.");
+            alert(currentLang === 'ko' ? "올바른 체중을 입력해주세요." : "正しい体重を入力してください。");
             return;
         }
 
@@ -107,7 +143,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     resetBtn.onclick = () => {
-        if(confirm('오늘의 기록을 모두 초기화하시겠습니까?')) {
+        const msg = currentLang === 'ko' ? '오늘의 기록을 모두 초기화하시겠습니까?' : '今日の記録をすべてリセットしますか？';
+        if(confirm(msg)) {
             state.eaten = { cals: 0, pro: 0, fat: 0, carb: 0 };
             state.meals = [];
             saveState();
@@ -125,7 +162,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 imagePreview.src = event.target.result;
                 imagePreview.classList.remove('hidden');
                 removeImageBtn.classList.remove('hidden');
-                // Extract base64 part
                 currentImageBase64 = event.target.result.split(',')[1];
             };
             reader.readAsDataURL(file);
@@ -142,14 +178,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---- AI Analysis ----
     analyzeBtn.onclick = async () => {
         if (!apiKey) {
-            alert("설정(⚙️)에서 Gemini API 키를 먼저 입력해주세요.");
+            alert(currentLang === 'ko' ? "설정(⚙️)에서 Gemini API 키를 먼저 입력해주세요." : "設定(⚙️)からGemini APIキーを先に入力してください。");
             settingsModal.classList.remove('hidden');
             return;
         }
 
         const text = mealText.value.trim();
         if (!text && !currentImageBase64) {
-            alert("분석할 음식의 텍스트를 입력하거나 사진을 업로드해주세요.");
+            alert(currentLang === 'ko' ? "분석할 음식의 텍스트나 사진을 넣어주세요." : "分析する食べ物のテキストや写真を入れてください。");
             return;
         }
 
@@ -166,22 +202,26 @@ document.addEventListener('DOMContentLoaded', () => {
             state.eaten.carb += result.carbs;
             
             state.meals.unshift({
-                name: result.name || (text ? text.substring(0, 15) + '...' : '업로드한 사진'),
+                name: result.name || (text ? text.substring(0, 15) + '...' : 'Uploaded Photo'),
                 macros: result,
-                time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+                time: new Date().toLocaleTimeString(currentLang === 'ko' ? 'ko-KR' : 'ja-JP', { hour: '2-digit', minute: '2-digit' })
             });
 
             saveState();
             updateDashboardUI();
             renderMealHistory();
             
+            // Push to global feed if DB exists
+            if (dbUrl) {
+                publishToGlobalFeed(result.name, result.calories);
+            }
+            
             // Clear inputs
             mealText.value = '';
-            removeImageBtn.click();
+            if(!removeImageBtn.classList.contains('hidden')) removeImageBtn.click();
             
         } catch (error) {
             console.error("AI Error:", error);
-            aiErrorMsg.textContent = "분석에 실패했습니다. API 키가 유효한지 확인하시거나 다시 시도해주세요.";
             aiErrorMsg.classList.remove('hidden');
         } finally {
             setLoading(false);
@@ -208,12 +248,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateDashboardUI() {
         const { targets, eaten } = state;
         
-        // Target Labels
         document.getElementById('cal-protein').textContent = targets.pro * 4;
         document.getElementById('cal-fat').textContent = targets.fat * 9;
         document.getElementById('cal-carbs').textContent = targets.carb * 4;
 
-        // Numbers
         elCalsTarget.textContent = targets.cals.toLocaleString();
         elProTarget.textContent = targets.pro;
         elFatTarget.textContent = targets.fat;
@@ -224,7 +262,6 @@ document.addEventListener('DOMContentLoaded', () => {
         animateValue(elFatEaten, parseFloat(elFatEaten.textContent) || 0, eaten.fat);
         animateValue(elCarbEaten, parseFloat(elCarbEaten.textContent) || 0, eaten.carb);
 
-        // Progress Bars
         updateBar(barCals, eaten.cals, targets.cals, true);
         updateBar(barPro, eaten.pro, targets.pro);
         updateBar(barFat, eaten.fat, targets.fat);
@@ -235,27 +272,20 @@ document.addEventListener('DOMContentLoaded', () => {
         let pct = Math.min((current / max) * 100, 100);
         element.style.width = `${pct}%`;
         
-        // Color warning if exceeding
         if (current > max) {
-            if(isCalorie) {
-                element.style.backgroundColor = 'var(--danger)';
-            } else {
-                element.classList.add('bg-danger');
-            }
+            if(isCalorie) element.style.backgroundColor = 'var(--danger)';
+            else element.classList.add('bg-danger');
             element.parentElement.previousElementSibling.querySelector('.number').classList.add('text-danger');
         } else {
-            if(isCalorie) {
-                element.style.backgroundColor = 'white';
-            } else {
-                element.classList.remove('bg-danger');
-            }
+            if(isCalorie) element.style.backgroundColor = 'white';
+            else element.classList.remove('bg-danger');
             element.parentElement.previousElementSibling.querySelector('.number').classList.remove('text-danger');
         }
     }
 
     function renderMealHistory() {
         if (state.meals.length === 0) {
-            mealList.innerHTML = '<li class="empty-state">아직 기록된 식단이 없습니다.</li>';
+            mealList.innerHTML = `<li class="empty-state">${window.t('emptyHistory')}</li>`;
             return;
         }
         
@@ -266,9 +296,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="meal-cals">${meal.macros.calories} kcal</span>
                 </div>
                 <div class="meal-macros">
-                    <span>🥩 단 ${meal.macros.protein}g</span>
-                    <span>🥑 지 ${meal.macros.fat}g</span>
-                    <span>🍚 탄 ${meal.macros.carbs}g</span>
+                    <span>🥩 ${currentLang==='ko'?'단':'タ'} ${meal.macros.protein}g</span>
+                    <span>🥑 ${currentLang==='ko'?'지':'脂'} ${meal.macros.fat}g</span>
+                    <span>🍚 ${currentLang==='ko'?'탄':'炭'} ${meal.macros.carbs}g</span>
                 </div>
             </li>
         `).join('');
@@ -297,56 +327,85 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---- Gemini API Fetch ----
     async function callGeminiAPI(textPrompt, base64Image) {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-        
+        let langCode = currentLang === 'ko' ? 'Korean' : 'Japanese';
         let parts = [];
         if (textPrompt) {
-            parts.push({ text: `Analyze this meal: "${textPrompt}". Estimate the macronutrients. Return ONLY a valid JSON object with keys: "name" (a short string name of the food), "calories" (number), "protein" (number), "fat" (number), "carbs" (number). No markdown, no backticks, just the JSON string.` });
+            parts.push({ text: `Analyze this meal: "${textPrompt}". Estimate the macronutrients. Return ONLY a valid JSON object with keys: "name" (a short string name of the food in ${langCode}), "calories" (number), "protein" (number), "fat" (number), "carbs" (number). No markdown.` });
         } else {
-            parts.push({ text: `Analyze the food in this image. Estimate the macronutrients. Return ONLY a valid JSON object with keys: "name" (a short string name of the food in Korean), "calories" (number), "protein" (number), "fat" (number), "carbs" (number). No markdown, no backticks, just the JSON string.` });
+            parts.push({ text: `Analyze the food in this image. Estimate the macronutrients. Return ONLY a valid JSON object with keys: "name" (a short string name of the food in ${langCode}), "calories" (number), "protein" (number), "fat" (number), "carbs" (number). No markdown.` });
         }
 
         if (base64Image) {
-            parts.push({
-                inline_data: { mime_type: "image/jpeg", data: base64Image }
-            });
+            parts.push({ inline_data: { mime_type: "image/jpeg", data: base64Image } });
         }
 
-        const requestBody = {
-            contents: [{ parts: parts }],
-            generationConfig: {
-                temperature: 0.2,
-                response_mime_type: "application/json"
-            }
-        };
+        const requestBody = { contents: [{ parts: parts }], generationConfig: { temperature: 0.2, response_mime_type: "application/json" } };
 
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
-
-        if (!response.ok) {
-            throw new Error(`API Error: ${response.status}`);
-        }
+        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+        if (!response.ok) throw new Error(`API Error: ${response.status}`);
 
         const data = await response.json();
         const jsonText = data.candidates[0].content.parts[0].text;
         
         try {
-            // Remove markdown code blocks if the model ignored instructions
             let cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
             const result = JSON.parse(cleanJson);
-            
-            // Validate numbers
             return {
-                name: result.name || '식단',
+                name: result.name || (currentLang === 'ko' ? '식단' : '食事'),
                 calories: Math.max(0, parseInt(result.calories) || 0),
                 protein: Math.max(0, parseInt(result.protein) || 0),
                 fat: Math.max(0, parseInt(result.fat) || 0),
                 carbs: Math.max(0, parseInt(result.carbs) || 0),
             };
         } catch (e) {
-            throw new Error("Failed to parse JSON response from AI");
+            throw new Error("Parse failed");
         }
+    }
+
+    // ---- Global Feed (Firebase REST) ----
+    async function publishToGlobalFeed(mealName, cals) {
+        if(!dbUrl) return;
+        const msg = currentLang === 'ko' ? '누군가 방금 식단을 추가했습니다!' : '誰かが食事を追加しました！';
+        const data = {
+            message: msg,
+            food: mealName,
+            calories: cals,
+            timestamp: Date.now()
+        };
+        try {
+            await fetch(`${dbUrl}feed.json`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            fetchGlobalFeed(); // refresh
+        } catch(e) { console.error('Feed publish failed'); }
+    }
+
+    async function fetchGlobalFeed() {
+        if(!dbUrl) return;
+        try {
+            // Get last 5 entries
+            const response = await fetch(`${dbUrl}feed.json?orderBy="$key"&limitToLast=5`);
+            if(!response.ok) return;
+            const data = await response.json();
+            
+            if(data && Object.keys(data).length > 0) {
+                // Convert object to array and sort descending
+                const entries = Object.values(data).sort((a,b) => b.timestamp - a.timestamp);
+                
+                globalFeedList.innerHTML = entries.map(entry => `
+                    <li style="border-left: 3px solid var(--neon-blue);">
+                        <div class="meal-info">
+                            <span class="meal-name">👤 Anonymous</span>
+                            <span style="font-size: 0.8rem; color: #94a3b8;">${new Date(entry.timestamp).toLocaleTimeString(currentLang === 'ko' ? 'ko-KR' : 'ja-JP', {hour:'2-digit', minute:'2-digit'})}</span>
+                        </div>
+                        <div style="font-size: 0.9rem; margin-top: 0.5rem;">
+                            <strong>${entry.food}</strong> (${entry.calories} kcal)
+                        </div>
+                    </li>
+                `).join('');
+            }
+        } catch(e) { console.error('Feed fetch failed'); }
     }
 });

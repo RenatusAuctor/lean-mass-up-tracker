@@ -82,6 +82,7 @@ body {
     align-items: center;
     margin-bottom: 1rem;
 }
+.header-actions { display: flex; gap: 0.5rem; }
 
 header {
     text-align: center;
