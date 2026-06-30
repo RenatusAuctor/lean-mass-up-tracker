@@ -12,6 +12,8 @@
     --danger: #ef4444;
 }
 
+.hidden { display: none !important; }
+
 * {
     margin: 0;
     padding: 0;
