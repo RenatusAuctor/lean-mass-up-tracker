@@ -13,7 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const userProfile = document.getElementById('user-profile');
     const userAvatar = document.getElementById('user-avatar');
 
-    // Dashboard values
     const elCalsEaten = document.getElementById('val-cals-eaten');
     const elCalsTarget = document.getElementById('val-cals-target');
     const elProEaten = document.getElementById('val-pro-eaten');
@@ -23,13 +22,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const elCarbEaten = document.getElementById('val-carb-eaten');
     const elCarbTarget = document.getElementById('val-carb-target');
 
-    // Progress Bars
     const barCals = document.getElementById('bar-calories');
     const barPro = document.getElementById('bar-protein');
     const barFat = document.getElementById('bar-fat');
     const barCarb = document.getElementById('bar-carbs');
 
-    // AI Input
     const mealText = document.getElementById('meal-text');
     const mealImage = document.getElementById('meal-image');
     const imagePreview = document.getElementById('image-preview');
@@ -40,18 +37,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const aiErrorMsg = document.getElementById('ai-error-msg');
     const mealList = document.getElementById('meal-list');
     
-    // Global Feed
     const globalFeedList = document.getElementById('global-feed-list');
     const langToggleBtn = document.getElementById('lang-toggle-btn');
 
     // ---- State ----
     let currentUser = null;
+    const todayStr = new Date().toLocaleDateString();
+    
     let state = {
+        lastDate: todayStr,
         hasTarget: false,
         weight: 0,
         targets: { cals: 0, pro: 0, fat: 0, carb: 0 },
         eaten: { cals: 0, pro: 0, fat: 0, carb: 0 },
-        meals: []
+        meals: [],
+        history: {} // { "YYYY. MM. DD.": { eaten: {...}, meals: [...] } }
     };
     let currentImageBase64 = null;
     let currentLang = localStorage.getItem('lang') || 'ko';
@@ -59,16 +59,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---- Initialization ----
     applyTranslations();
     
-    // Restore local state first as fallback
+    // Restore local state
     const localState = localStorage.getItem('macro_state');
     if (localState) {
-        state = JSON.parse(localState);
+        let parsed = JSON.parse(localState);
+        state = { ...state, ...parsed }; // Merge default with local
+        checkDailyReset();
         renderState();
     }
 
     fetchGlobalFeed();
 
-    // ---- Authentication ----
+    // ---- Authentication & Data Sync ----
     onAuthStateChanged(auth, async (user) => {
         if (user) {
             currentUser = user;
@@ -76,18 +78,38 @@ document.addEventListener('DOMContentLoaded', () => {
             userProfile.classList.remove('hidden');
             userAvatar.src = user.photoURL || '';
             
-            // Fetch user data from Firebase
             const dbRef = ref(db);
             try {
                 const snapshot = await get(child(dbRef, `users/${user.uid}/state`));
                 if (snapshot.exists()) {
-                    state = snapshot.val();
-                    // Ensure arrays exist
-                    if (!state.meals) state.meals = [];
-                    if (!state.eaten) state.eaten = { cals: 0, pro: 0, fat: 0, carb: 0 };
-                    renderState();
-                    localStorage.setItem('macro_state', JSON.stringify(state)); // Sync local
+                    const cloudState = snapshot.val();
+                    
+                    // Smart Merge Logic: If user had unauthenticated local data today, merge it into cloud data
+                    if (state.eaten && state.eaten.cals > 0 && cloudState.lastDate === todayStr) {
+                        // Merge local into cloud
+                        cloudState.eaten.cals += state.eaten.cals;
+                        cloudState.eaten.pro += state.eaten.pro;
+                        cloudState.eaten.fat += state.eaten.fat;
+                        cloudState.eaten.carb += state.eaten.carb;
+                        cloudState.meals = [...(state.meals || []), ...(cloudState.meals || [])];
+                        state = cloudState;
+                    } else if (state.eaten && state.eaten.cals > 0 && cloudState.lastDate !== todayStr) {
+                        // Local has today's data, cloud is old. Keep local, just take targets from cloud if needed
+                        if (!state.hasTarget && cloudState.hasTarget) {
+                            state.hasTarget = cloudState.hasTarget;
+                            state.targets = cloudState.targets;
+                            state.weight = cloudState.weight;
+                        }
+                    } else {
+                        // Just use cloud state
+                        state = cloudState;
+                    }
                 }
+                
+                checkDailyReset();
+                renderState();
+                saveState(); // Save the newly merged state back to cloud and local
+                
             } catch(e) {
                 console.error("Failed to fetch user state", e);
             }
@@ -108,16 +130,38 @@ document.addEventListener('DOMContentLoaded', () => {
     logoutBtn.onclick = () => {
         signOut(auth).then(() => {
             state = {
+                lastDate: todayStr,
                 hasTarget: false,
                 weight: 0,
                 targets: { cals: 0, pro: 0, fat: 0, carb: 0 },
                 eaten: { cals: 0, pro: 0, fat: 0, carb: 0 },
-                meals: []
+                meals: [],
+                history: {}
             };
             localStorage.removeItem('macro_state');
             renderState();
         });
     };
+
+    // ---- Daily Reset Logic ----
+    function checkDailyReset() {
+        const currentDateStr = new Date().toLocaleDateString();
+        if (state.lastDate && state.lastDate !== currentDateStr) {
+            // It's a new day! Archive yesterday's data
+            if (!state.history) state.history = {};
+            if (state.eaten.cals > 0) {
+                state.history[state.lastDate] = {
+                    eaten: { ...state.eaten },
+                    meals: [...state.meals]
+                };
+            }
+            // Reset today
+            state.eaten = { cals: 0, pro: 0, fat: 0, carb: 0 };
+            state.meals = [];
+            state.lastDate = currentDateStr;
+            saveState();
+        }
+    }
 
     // ---- Language Toggle ----
     langToggleBtn.onclick = () => {
@@ -155,8 +199,6 @@ document.addEventListener('DOMContentLoaded', () => {
         state.hasTarget = true;
         state.weight = weight;
         state.targets = { cals: totalCalories, pro: proteinGrams, fat: fatGrams, carb: carbsGrams };
-        state.eaten = { cals: 0, pro: 0, fat: 0, carb: 0 };
-        state.meals = [];
         
         saveState();
         renderState();
@@ -204,6 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setLoading(true);
         aiErrorMsg.classList.add('hidden');
+        checkDailyReset(); // Ensure we are on the right day before adding
 
         try {
             const response = await fetch('/api/analyze', {
@@ -324,7 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderMealHistory() {
-        if (state.meals.length === 0) {
+        if (!state.meals || state.meals.length === 0) {
             mealList.innerHTML = `<li class="empty-state">${window.t('emptyHistory') || '아직 기록된 식단이 없습니다.'}</li>`;
             return;
         }
@@ -367,12 +410,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---- Central Server (Global Feed) Serverless API ----
     async function publishToGlobalFeed(mealName, cals) {
-        const msg = currentLang === 'ko' ? '누군가 방금 식단을 추가했습니다!' : '誰かが食事を追加しました！';
+        // Send a generic key instead of a hardcoded language message, so the frontend translates it.
         try {
             await fetch('/api/feed', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: msg, food: mealName, calories: cals, timestamp: Date.now() })
+                body: JSON.stringify({ message: "SOMEONE_ADDED_MEAL", food: mealName, calories: cals, timestamp: Date.now() })
             });
             fetchGlobalFeed(); // refresh
         } catch(e) { console.error('Feed publish failed', e); }
@@ -385,20 +428,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             
             if(data && Object.keys(data).length > 0) {
-                // Convert object to array and sort descending
                 const entries = Object.values(data).sort((a,b) => b.timestamp - a.timestamp);
                 
-                globalFeedList.innerHTML = entries.map(entry => `
+                globalFeedList.innerHTML = entries.map(entry => {
+                    const timeStr = new Date(entry.timestamp).toLocaleTimeString(currentLang === 'ko' ? 'ko-KR' : 'ja-JP', {hour:'2-digit', minute:'2-digit'});
+                    // We can optionally translate entry.message here if we want, but it's fine
+                    return `
                     <li style="border-left: 3px solid var(--neon-blue);">
                         <div class="meal-info">
                             <span class="meal-name">👤 Anonymous</span>
-                            <span style="font-size: 0.8rem; color: #94a3b8;">${new Date(entry.timestamp).toLocaleTimeString(currentLang === 'ko' ? 'ko-KR' : 'ja-JP', {hour:'2-digit', minute:'2-digit'})}</span>
+                            <span style="font-size: 0.8rem; color: #94a3b8;">${timeStr}</span>
                         </div>
                         <div style="font-size: 0.9rem; margin-top: 0.5rem;">
                             <strong>${entry.food}</strong> (${entry.calories} kcal)
                         </div>
                     </li>
-                `).join('');
+                `}).join('');
             }
         } catch(e) { console.error('Feed fetch failed', e); }
     }
