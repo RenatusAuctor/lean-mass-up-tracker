@@ -4,13 +4,14 @@ import { getDatabase, ref, set, get, child } from "https://www.gstatic.com/fireb
 
 // TODO: Replace with your actual Firebase config from the Firebase Console -> Project Settings
 const firebaseConfig = {
-  apiKey: "AIzaSy_YOUR_FIREBASE_API_KEY",
-  authDomain: "lean-mass-up-tracker-default.firebaseapp.com",
+  apiKey: "AIzaSyCBes_4ZJISGDJ04SGbRdtWZB-cQC34X44",
+  authDomain: "lean-mass-up-tracker.firebaseapp.com",
   databaseURL: "https://lean-mass-up-tracker-default-rtdb.firebaseio.com",
-  projectId: "lean-mass-up-tracker-default",
-  storageBucket: "lean-mass-up-tracker-default.appspot.com",
-  messagingSenderId: "1234567890",
-  appId: "1:1234567890:web:abcdef123456"
+  projectId: "lean-mass-up-tracker",
+  storageBucket: "lean-mass-up-tracker.firebasestorage.app",
+  messagingSenderId: "318819059829",
+  appId: "1:318819059829:web:416fe853edc910e510d03c",
+  measurementId: "G-L87N583024"
 };
 
 const app = initializeApp(firebaseConfig);
