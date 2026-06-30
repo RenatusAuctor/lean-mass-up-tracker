@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lean Mass Up Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Pretendard:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-card">
+            <button id="close-modal" class="close-btn">&times;</button>
+            <h3>⚙️ 설정 (API Key)</h3>
+            <p class="modal-desc">AI 자동 식단 분석을 위해 <strong>Google Gemini API Key</strong>가 필요합니다. 키는 브라우저에만 안전하게 저장됩니다.</p>
+            <input type="password" id="api-key-input" placeholder="AIzaSy...">
+            <div class="modal-actions">
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" class="link-btn">키 발급받기 (무료)</a>
+                <button id="save-key-btn" class="primary-btn">저장하기</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <div class="badge">PRO VERSION + AI</div>
+                <button id="settings-btn" class="icon-btn">⚙️</button>
+            </div>
+            <h1>LEAN MASS UP</h1>
+            <p>데이터 기반의 완벽한 근성장 매크로 트래커</p>
+        </header>
+
+        <main>
+            <!-- 1. Target Setup Section -->
+            <section class="input-section glass-card" id="setup-section">
+                <h2>현재 체중을 입력하세요</h2>
+                <div class="input-group">
+                    <input type="number" id="weight-input" placeholder="00.0" step="0.1" min="30" max="200">
+                    <span class="unit">kg</span>
+                </div>
+                <button id="calculate-btn" class="primary-btn">목표 식단 세팅하기</button>
+            </section>
+
+            <!-- 2. Dashboard Section (Hidden by default) -->
+            <section class="dashboard-section hidden" id="dashboard">
+                <div class="summary glass-card highlight">
+                    <div class="summary-header">
+                        <h3>오늘의 칼로리 현황</h3>
+                        <button id="reset-btn" class="icon-btn text-small">초기화</button>
+                    </div>
+                    <div class="value-wrapper">
+                        <span class="number" id="val-cals-eaten">0</span>
+                        <span class="unit">/ <span id="val-cals-target">0</span> kcal</span>
+                    </div>
+                    <div class="progress-bg mt-3"><div class="progress-bar bg-white" id="bar-calories"></div></div>
+                </div>
+
+                <div class="macros-grid">
+                    <div class="macro-card glass-card">
+                        <div class="macro-header">
+                            <span class="icon">🥩</span>
+                            <h4>단백질</h4>
+                        </div>
+                        <div class="macro-value">
+                            <span class="number text-neon-blue" id="val-pro-eaten">0</span>
+                            <span class="unit">/ <span id="val-pro-target">0</span>g</span>
+                        </div>
+                        <div class="progress-bg"><div class="progress-bar bg-neon-blue" id="bar-protein"></div></div>
+                        <p class="macro-desc">근육 합성 (목표: <span id="cal-protein">0</span> kcal)</p>
+                    </div>
+
+                    <div class="macro-card glass-card">
+                        <div class="macro-header">
+                            <span class="icon">🥑</span>
+                            <h4>지방</h4>
+                        </div>
+                        <div class="macro-value">
+                            <span class="number text-neon-purple" id="val-fat-eaten">0</span>
+                            <span class="unit">/ <span id="val-fat-target">0</span>g</span>
+                        </div>
+                        <div class="progress-bg"><div class="progress-bar bg-neon-purple" id="bar-fat"></div></div>
+                        <p class="macro-desc">호르몬 유지 (목표: <span id="cal-fat">0</span> kcal)</p>
+                    </div>
+
+                    <div class="macro-card glass-card">
+                        <div class="macro-header">
+                            <span class="icon">🍚</span>
+                            <h4>탄수화물</h4>
+                        </div>
+                        <div class="macro-value">
+                            <span class="number text-neon-green" id="val-carb-eaten">0</span>
+                            <span class="unit">/ <span id="val-carb-target">0</span>g</span>
+                        </div>
+                        <div class="progress-bg"><div class="progress-bar bg-neon-green" id="bar-carbs"></div></div>
+                        <p class="macro-desc">훈련 연료 (목표: <span id="cal-carbs">0</span> kcal)</p>
+                    </div>
+                </div>
+
+                <!-- 3. AI Meal Input Section -->
+                <section class="meal-input-section glass-card">
+                    <h3>🍽 식단 기록하기 (AI 자동 분석)</h3>
+                    <p class="section-desc">사진을 올리거나 먹은 메뉴를 적어주시면 AI가 영양성분을 자동 계산합니다.</p>
+                    
+                    <div class="input-tabs">
+                        <textarea id="meal-text" placeholder="예: 점심에 닭가슴살 100g이랑 고구마 150g 먹었어"></textarea>
+                        
+                        <div class="image-upload-wrapper">
+                            <input type="file" id="meal-image" accept="image/*">
+                            <label for="meal-image" class="upload-label">
+                                <span class="icon">📸</span> 음식 사진 업로드
+                            </label>
+                            <img id="image-preview" class="hidden" alt="미리보기">
+                            <button id="remove-image-btn" class="hidden">&times;</button>
+                        </div>
+                    </div>
+
+                    <button id="analyze-btn" class="primary-btn glow-btn">
+                        <span class="btn-text">AI 분석 및 추가하기</span>
+                        <div class="spinner hidden"></div>
+                    </button>
+                    <p id="ai-error-msg" class="error-msg hidden"></p>
+                </section>
+
+                <!-- 4. Meal History Section -->
+                <section class="meal-history-section glass-card">
+                    <h3>📝 오늘의 식단 기록</h3>
+                    <ul id="meal-list" class="meal-list">
+                        <!-- Items injected by JS -->
+                        <li class="empty-state">아직 기록된 식단이 없습니다.</li>
+                    </ul>
+                </section>
+
+                <div class="tips-section glass-card mt-4">
+                    <h3>💡 실전 식단 구성 팁</h3>
+                    <div class="tip-item">
+                        <div class="tip-num">1</div>
+                        <div class="tip-content">
+                            <h4>식곤증 방지를 위한 탄수화물 쪼개기</h4>
+                            <p>하루 섭취할 탄수화물을 4번(아침, 점심, 저녁, 간식)에 걸쳐 나눠 먹는 것이 혈당 안정과 체중 증량에 모두 유리합니다.</p>
+                        </div>
+                    </div>
+                    <div class="tip-item">
+                        <div class="tip-num">2</div>
+                        <div class="tip-content">
+                            <h4>현실적인 단백질 채우기</h4>
+                            <p>일반 식사에 포함된 고기나 계란으로 기본 베이스를 깔고, 간식 타임에 마시기 편한 유청 단백질(보충제)을 활용하세요.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
