@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Pretendard:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="i18n.js"></script>
+    <script type="module" src="firebase-config.js"></script>
 </head>
 <body>
     <div class="background-orbs">
@@ -17,27 +18,17 @@
         <div class="orb orb-3"></div>
     </div>
 
-    <!-- Settings Modal -->
-    <div id="settings-modal" class="modal-overlay hidden">
-        <div class="modal-content glass-card">
-            <button id="close-modal" class="close-btn">&times;</button>
-            <h3 data-i18n="settingsTitle">⚙️ 설정 (API & DB)</h3>
-            <p class="modal-desc" data-i18n="settingsDesc">AI 식단 분석을 위한 <strong>Gemini API Key</strong>와 글로벌 피드를 위한 <strong>Firebase Realtime DB URL</strong>을 입력해주세요.</p>
-            <input type="password" id="api-key-input" placeholder="Gemini API Key (AIzaSy...)">
-            <div class="modal-actions mt-3">
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" class="link-btn" data-i18n="getApiKey">키 발급받기 (무료)</a>
-                <button id="save-key-btn" class="primary-btn" data-i18n="saveBtn" style="max-width: 150px;">저장하기</button>
-            </div>
-        </div>
-    </div>
-
     <div class="container">
         <header>
             <div class="header-top">
                 <div class="badge" data-i18n="badgePro">PRO VERSION + AI</div>
                 <div class="header-actions">
+                    <button id="login-btn" class="icon-btn text-small bg-neon-blue" style="color:#0b0f19; font-weight:bold;">Login</button>
+                    <div id="user-profile" class="hidden" style="display:flex; align-items:center; gap:0.5rem;">
+                        <img id="user-avatar" src="" style="width:30px; height:30px; border-radius:50%; border:1px solid var(--neon-blue);">
+                        <button id="logout-btn" class="icon-btn text-small" data-i18n="logoutBtn">Logout</button>
+                    </div>
                     <button id="lang-toggle-btn" class="icon-btn text-small">🌐 JA</button>
-                    <button id="settings-btn" class="icon-btn">⚙️</button>
                 </div>
             </div>
             <h1 data-i18n="title">LEAN MASS UP</h1>
@@ -172,6 +163,6 @@
         </main>
     </div>
 
-    <script src="script.js"></script>
+    <script type="module" src="script.js"></script>
 </body>
 </html>

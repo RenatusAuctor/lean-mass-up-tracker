@@ -1,3 +1,5 @@
+import { auth, db, signInWithPopup, provider, onAuthStateChanged, signOut, ref, set, get, child } from './firebase-config.js';
+
 document.addEventListener('DOMContentLoaded', () => {
     // ---- DOM Elements ----
     const weightInput = document.getElementById('weight-input');
@@ -6,12 +8,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const dashboardSection = document.getElementById('dashboard');
     const resetBtn = document.getElementById('reset-btn');
 
-    // Settings Modal
-    const settingsBtn = document.getElementById('settings-btn');
-    const settingsModal = document.getElementById('settings-modal');
-    const closeModal = document.getElementById('close-modal');
-    const apiKeyInput = document.getElementById('api-key-input');
-    const saveKeyBtn = document.getElementById('save-key-btn');
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const userProfile = document.getElementById('user-profile');
+    const userAvatar = document.getElementById('user-avatar');
 
     // Dashboard values
     const elCalsEaten = document.getElementById('val-cals-eaten');
@@ -44,15 +44,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const globalFeedList = document.getElementById('global-feed-list');
     const langToggleBtn = document.getElementById('lang-toggle-btn');
 
-    // ---- Configuration ----
-    // 사용자님의 실제 서버 API 주소 또는 Firebase Database URL을 여기에 하드코딩하세요.
-    // 예: "https://my-custom-server.com/api" 또는 "https://my-firebase-project.firebaseio.com/"
-    const MY_SERVER_URL = "https://lean-mass-up-tracker-default-rtdb.firebaseio.com/"; 
-
     // ---- State ----
-    let apiKey = localStorage.getItem('gemini_api_key') || '';
-    
-    let state = JSON.parse(localStorage.getItem('macro_state')) || {
+    let currentUser = null;
+    let state = {
         hasTarget: false,
         weight: 0,
         targets: { cals: 0, pro: 0, fat: 0, carb: 0 },
@@ -63,19 +57,67 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentLang = localStorage.getItem('lang') || 'ko';
 
     // ---- Initialization ----
-    if (apiKey) apiKeyInput.value = apiKey;
-
     applyTranslations();
-
-    if (state.hasTarget) {
-        setupSection.classList.add('hidden');
-        dashboardSection.style.display = 'block';
-        setTimeout(() => dashboardSection.classList.remove('hidden'), 10);
-        updateDashboardUI();
-        renderMealHistory();
-    }
     
+    // Restore local state first as fallback
+    const localState = localStorage.getItem('macro_state');
+    if (localState) {
+        state = JSON.parse(localState);
+        renderState();
+    }
+
     fetchGlobalFeed();
+
+    // ---- Authentication ----
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            currentUser = user;
+            loginBtn.classList.add('hidden');
+            userProfile.classList.remove('hidden');
+            userAvatar.src = user.photoURL || '';
+            
+            // Fetch user data from Firebase
+            const dbRef = ref(db);
+            try {
+                const snapshot = await get(child(dbRef, `users/${user.uid}/state`));
+                if (snapshot.exists()) {
+                    state = snapshot.val();
+                    // Ensure arrays exist
+                    if (!state.meals) state.meals = [];
+                    if (!state.eaten) state.eaten = { cals: 0, pro: 0, fat: 0, carb: 0 };
+                    renderState();
+                    localStorage.setItem('macro_state', JSON.stringify(state)); // Sync local
+                }
+            } catch(e) {
+                console.error("Failed to fetch user state", e);
+            }
+        } else {
+            currentUser = null;
+            loginBtn.classList.remove('hidden');
+            userProfile.classList.add('hidden');
+        }
+    });
+
+    loginBtn.onclick = () => {
+        signInWithPopup(auth, provider).catch(error => {
+            console.error("Login failed:", error);
+            alert("Login Failed: " + error.message);
+        });
+    };
+
+    logoutBtn.onclick = () => {
+        signOut(auth).then(() => {
+            state = {
+                hasTarget: false,
+                weight: 0,
+                targets: { cals: 0, pro: 0, fat: 0, carb: 0 },
+                eaten: { cals: 0, pro: 0, fat: 0, carb: 0 },
+                meals: []
+            };
+            localStorage.removeItem('macro_state');
+            renderState();
+        });
+    };
 
     // ---- Language Toggle ----
     langToggleBtn.onclick = () => {
@@ -88,23 +130,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function applyTranslations() {
         document.querySelectorAll('[data-i18n]').forEach(el => {
             const key = el.getAttribute('data-i18n');
-            el.innerHTML = window.t(key);
+            if (window.t && window.t(key)) el.innerHTML = window.t(key);
         });
         document.querySelectorAll('[data-i18n-ph]').forEach(el => {
             const key = el.getAttribute('data-i18n-ph');
-            el.setAttribute('placeholder', window.t(key));
+            if (window.t && window.t(key)) el.setAttribute('placeholder', window.t(key));
         });
         langToggleBtn.textContent = currentLang === 'ko' ? '🌐 JA' : '🌐 KO';
     }
-
-    // ---- Settings Modal ----
-    settingsBtn.onclick = () => settingsModal.classList.remove('hidden');
-    closeModal.onclick = () => settingsModal.classList.add('hidden');
-    saveKeyBtn.onclick = () => {
-        apiKey = apiKeyInput.value.trim();
-        localStorage.setItem('gemini_api_key', apiKey);
-        settingsModal.classList.add('hidden');
-    };
 
     // ---- Base Calculations ----
     calcBtn.onclick = () => {
@@ -126,13 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.meals = [];
         
         saveState();
-        
-        setupSection.style.display = 'none';
-        dashboardSection.style.display = 'block';
-        setTimeout(() => dashboardSection.classList.remove('hidden'), 10);
-        
-        updateDashboardUI();
-        renderMealHistory();
+        renderState();
     };
 
     resetBtn.onclick = () => {
@@ -141,8 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.eaten = { cals: 0, pro: 0, fat: 0, carb: 0 };
             state.meals = [];
             saveState();
-            updateDashboardUI();
-            renderMealHistory();
+            renderState();
         }
     };
 
@@ -168,14 +194,8 @@ document.addEventListener('DOMContentLoaded', () => {
         removeImageBtn.classList.add('hidden');
     };
 
-    // ---- AI Analysis ----
+    // ---- AI Analysis (Serverless API) ----
     analyzeBtn.onclick = async () => {
-        if (!apiKey) {
-            alert(currentLang === 'ko' ? "설정(⚙️)에서 Gemini API 키를 먼저 입력해주세요." : "設定(⚙️)からGemini APIキーを先に入力してください。");
-            settingsModal.classList.remove('hidden');
-            return;
-        }
-
         const text = mealText.value.trim();
         if (!text && !currentImageBase64) {
             alert(currentLang === 'ko' ? "분석할 음식의 텍스트나 사진을 넣어주세요." : "分析する食べ物のテキストや写真を入れてください。");
@@ -186,7 +206,19 @@ document.addEventListener('DOMContentLoaded', () => {
         aiErrorMsg.classList.add('hidden');
 
         try {
-            const result = await callGeminiAPI(text, currentImageBase64);
+            const response = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    textPrompt: text,
+                    base64Image: currentImageBase64,
+                    langCode: currentLang === 'ko' ? 'Korean' : 'Japanese'
+                })
+            });
+
+            if (!response.ok) throw new Error("API call failed");
+
+            const result = await response.json();
             
             // Add to state
             state.eaten.cals += result.calories;
@@ -201,10 +233,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             saveState();
-            updateDashboardUI();
-            renderMealHistory();
+            renderState();
             
-            // Push to global feed (Central Server)
+            // Push to global feed (Serverless API)
             publishToGlobalFeed(result.name, result.calories);
             
             // Clear inputs
@@ -222,6 +253,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---- Core Functions ----
     function saveState() {
         localStorage.setItem('macro_state', JSON.stringify(state));
+        if (currentUser) {
+            set(ref(db, 'users/' + currentUser.uid + '/state'), state).catch(e => console.error("Firebase sync error", e));
+        }
+    }
+
+    function renderState() {
+        if (state.hasTarget) {
+            setupSection.style.display = 'none';
+            dashboardSection.style.display = 'block';
+            setTimeout(() => dashboardSection.classList.remove('hidden'), 10);
+            updateDashboardUI();
+            renderMealHistory();
+        } else {
+            setupSection.style.display = 'flex';
+            dashboardSection.style.display = 'none';
+            dashboardSection.classList.add('hidden');
+        }
     }
 
     function setLoading(isLoading) {
@@ -260,6 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateBar(element, current, max, isCalorie = false) {
+        if (!element) return;
         let pct = Math.min((current / max) * 100, 100);
         element.style.width = `${pct}%`;
         
@@ -276,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderMealHistory() {
         if (state.meals.length === 0) {
-            mealList.innerHTML = `<li class="empty-state">${window.t('emptyHistory')}</li>`;
+            mealList.innerHTML = `<li class="empty-state">${window.t('emptyHistory') || '아직 기록된 식단이 없습니다.'}</li>`;
             return;
         }
         
@@ -296,6 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function animateValue(obj, start, end) {
+        if (!obj) return;
         if (start === end) {
             obj.innerHTML = Math.floor(end).toLocaleString();
             return;
@@ -315,72 +365,22 @@ document.addEventListener('DOMContentLoaded', () => {
         window.requestAnimationFrame(step);
     }
 
-    // ---- Gemini API Fetch ----
-    async function callGeminiAPI(textPrompt, base64Image) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-        let langCode = currentLang === 'ko' ? 'Korean' : 'Japanese';
-        let parts = [];
-        if (textPrompt) {
-            parts.push({ text: `Analyze this meal: "${textPrompt}". Estimate the macronutrients. Return ONLY a valid JSON object with keys: "name" (a short string name of the food in ${langCode}), "calories" (number), "protein" (number), "fat" (number), "carbs" (number). No markdown.` });
-        } else {
-            parts.push({ text: `Analyze the food in this image. Estimate the macronutrients. Return ONLY a valid JSON object with keys: "name" (a short string name of the food in ${langCode}), "calories" (number), "protein" (number), "fat" (number), "carbs" (number). No markdown.` });
-        }
-
-        if (base64Image) {
-            parts.push({ inline_data: { mime_type: "image/jpeg", data: base64Image } });
-        }
-
-        const requestBody = { contents: [{ parts: parts }], generationConfig: { temperature: 0.2, response_mime_type: "application/json" } };
-
-        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
-        if (!response.ok) throw new Error(`API Error: ${response.status}`);
-
-        const data = await response.json();
-        const jsonText = data.candidates[0].content.parts[0].text;
-        
-        try {
-            let cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
-            const result = JSON.parse(cleanJson);
-            return {
-                name: result.name || (currentLang === 'ko' ? '식단' : '食事'),
-                calories: Math.max(0, parseInt(result.calories) || 0),
-                protein: Math.max(0, parseInt(result.protein) || 0),
-                fat: Math.max(0, parseInt(result.fat) || 0),
-                carbs: Math.max(0, parseInt(result.carbs) || 0),
-            };
-        } catch (e) {
-            throw new Error("Parse failed");
-        }
-    }
-
-    // ---- Central Server (Global Feed) ----
+    // ---- Central Server (Global Feed) Serverless API ----
     async function publishToGlobalFeed(mealName, cals) {
-        if(!MY_SERVER_URL || MY_SERVER_URL.includes('your-server-endpoint')) return;
         const msg = currentLang === 'ko' ? '누군가 방금 식단을 추가했습니다!' : '誰かが食事を追加しました！';
-        const data = {
-            message: msg,
-            food: mealName,
-            calories: cals,
-            timestamp: Date.now()
-        };
         try {
-            // Firebase Realtime DB URL example: https://my-db.firebaseio.com/feed.json
-            const endpoint = MY_SERVER_URL.endsWith('.json') ? MY_SERVER_URL : `${MY_SERVER_URL}feed.json`;
-            await fetch(endpoint, {
+            await fetch('/api/feed', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+                body: JSON.stringify({ message: msg, food: mealName, calories: cals, timestamp: Date.now() })
             });
             fetchGlobalFeed(); // refresh
-        } catch(e) { console.error('Feed publish failed'); }
+        } catch(e) { console.error('Feed publish failed', e); }
     }
 
     async function fetchGlobalFeed() {
-        if(!MY_SERVER_URL || MY_SERVER_URL.includes('your-server-endpoint')) return;
         try {
-            // Get last 5 entries
-            const endpoint = MY_SERVER_URL.endsWith('.json') ? MY_SERVER_URL : `${MY_SERVER_URL}feed.json`;
-            const response = await fetch(`${endpoint}?orderBy="$key"&limitToLast=5`);
+            const response = await fetch('/api/feed');
             if(!response.ok) return;
             const data = await response.json();
             
@@ -400,6 +400,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     </li>
                 `).join('');
             }
-        } catch(e) { console.error('Feed fetch failed'); }
+        } catch(e) { console.error('Feed fetch failed', e); }
     }
 });
